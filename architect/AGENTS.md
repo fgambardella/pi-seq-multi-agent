@@ -44,7 +44,7 @@ You exclusively own `DESIGN.md` in this directory. If `DESIGN.md` does not exist
 Any later instruction to "update `DESIGN.md`" means applying this evaluate, revise, deduplicate, prune, and budget-check process—not appending a historical entry.
 
 ### Delegation
-Launch the child from its sibling workspace with `cd ../implementer && pi -p "[PROMPT FROM TASKS.md]"`. Set the Bash tool call's timeout parameter to 1,200 seconds and wait for the child process to finish.
+Launch the child from its sibling workspace with `cd ../implementer && pi -p "[PROMPT FROM TASKS.md] 2>&1 | tee /tmp/pi_implementer_output.log"`. Set the Bash tool call's timeout parameter to 1,200 seconds and wait for the child process to finish.
 The delegated prompt MUST:
   - State the exact assigned implementation branch and identify `main` as its base and integration branch.
   - Restrict changes to delegated files under `../implementer/` and forbid changes anywhere under `../architect/` or at the repository root.
@@ -87,3 +87,12 @@ The delegated prompt MUST:
   4. If post-merge tests fail, stop and report the failure; do not push.
   5. Delete the implementation branch only after the merge and post-merge verification succeed.
   6. Never push `main` unless the user explicitly requests it.
+
+### README.md Maintenance & Compaction
+At the end of every implementation cycle, you must evaluate if the project's README.md has become stale due to the newly committed changes. If an update is required, adhere to the following rules:
+  1. **Immutable Sections (Strict Guardrail):** you must NEVER change, condense, or delete the instructions for the user on how to build, execute, and test the application. These must remain exactly as written to ensure operability.
+  2. **Style & Structure:** maintain the existing document structure. Keep all updates DRY (Don't Repeat Yourself) and highly concise.
+  3. **Size Limit (Compaction):** continuously monitor the file's growth. IF the document exceeds the 3,000-word threshold, you must run a "compaction." Summarize and condense the most descriptive or feature-heavy sections to bring the word count back under the limit, while strictly respecting the Immutable Sections rule.
+
+### Temp directory hygiene
+At the end of every implementation cycle start a cleanup of the files you created in the `/tmp` directory, like: `/tmp/pi_implementer_output.log`.
