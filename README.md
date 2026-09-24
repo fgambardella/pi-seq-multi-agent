@@ -32,11 +32,12 @@ The repository root intentionally has no `AGENTS.md`. If you add one, both agent
 
 The processes remain isolated at the conversation level, but they share one filesystem and Git working tree. Their durable coordination state consists of:
 
-- `architect/DESIGN.md`
-- `architect/TASKS.md`
-- The assigned implementation branch
-- Implementer commits
-- Test results and handoff reports
+- `architect/DESIGN.md`;
+- `architect/TASKS.md`;
+- the assigned implementation branch;
+- implementer commits;
+- test results and handoff reports;
+- prompt injected by the Architect into the Implementer.
 
 See Pi's current [project context loader](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/resource-loader.ts) for its context-file discovery behavior.
 
@@ -48,8 +49,8 @@ my-pi-project/
 ├── README.md                   # Workflow documentation
 ├── architect/
 │   ├── AGENTS.md               # Architect role and orchestration contract
-│   ├── DESIGN.md               # Generated and maintained by the Architect
-│   └── TASKS.md                # Bounded rolling queue and implementation summary
+│   ├── DESIGN.md               # Software architecture desing document generated and maintained by the Architect
+│   └── TASKS.md                # Bounded rolling queue of tasks to implement and implementation summary of older tasks
 └── implementer/
     ├── AGENTS.md               # Implementer role and execution contract
     ├── package.json            # Example project manifest; language-dependent
@@ -80,17 +81,17 @@ wc -w DESIGN.md
 wc -c DESIGN.md
 ```
 
-The word limit bounds semantic content; the byte limit catches copied code, large tables, diagrams, and other token-heavy material. If an existing design exceeds either limit, the Architect does not load it during normal planning or delegate implementation. It performs dedicated compaction first, using ranged reads of no more than 200 lines and 6,000 bytes each. Before cumulative legacy excerpts in one context exceed 12,000 bytes, it stops and continues in a fresh Architect session. Git preserves the original history, so copied excerpts must not accumulate in separate notes.
+The word limit bounds semantic content; the byte limit catches copied code, large tables, diagrams, and other token-heavy material. If an existing design exceeds either limit, the Architect does not load it during normal planning or delegate implementation. It performs dedicated compaction first, using ranged reads of no more than 200 lines and 6,000 bytes each. Git preserves the original history, so copied excerpts must not accumulate in separate notes.
 
 The Implementer performs its Git preflight first, then checks the same limits before reading `../architect/DESIGN.md`. If the file is missing or over budget, the Implementer makes no changes and asks the Architect to create or prune it. After reading a within-budget file once, it also rejects an empty design, missing required sections, or content that is primarily a changelog or historical dump.
 
 Keep only these sections:
 
-- **System Overview:** Purpose, stack, and global constraints in at most eight bullets.
-- **Component Architecture:** One compact entry per active component with its responsibility, dependencies, and canonical source path.
-- **Data Models and Flow:** Cross-component state, persistence, ownership, and critical data movement only.
-- **External Interfaces:** Stable public contracts and integrations, preferably linked to their canonical schema or source.
-- **Known Architectural Debt:** At most ten active, actionable architectural issues; resolved items are removed immediately. Implementation status belongs in `TASKS.md`.
+- **System Overview:** purpose, stack, and global constraints in at most eight bullets.
+- **Component Architecture:** one compact entry per active component with its responsibility, dependencies, and canonical source path.
+- **Data Models and Flow:** cross-component state, persistence, ownership, and critical data movement only.
+- **External Interfaces:** stable public contracts and integrations, preferably linked to their canonical schema or source.
+- **Known Architectural Debt:** at most ten active, actionable architectural issues; resolved items are removed immediately. Implementation status belongs in `TASKS.md`.
 
 Use the appropriate source of truth for everything else:
 
@@ -137,17 +138,17 @@ wc -w TASKS.md
 wc -c TASKS.md
 ```
 
-If an existing file is oversized, the Architect does not read it in full. It uses targeted searches to locate headings, unchecked work, current blockers, and recent completions; reads ranges of no more than 200 lines and 6,000 bytes; and rewrites the file into the required structure. It starts a fresh session before cumulative legacy excerpts exceed 10,000 bytes.
+If an existing file is oversized, the Architect does not read it in full. It uses targeted searches to locate headings, unchecked work, current blockers, and recent completions; reads ranges of no more than 200 lines and 6,000 bytes; and rewrites the file into the required structure.
 
 Keep exactly these top-level sections:
 
-1. **Project Goal:** The stable macro-goal in at most 100 words.
-2. **Test Policy:** Testing framework, full-suite command, and targeted-test convention only.
-3. **Current Implementation Summary:** A rewritten snapshot of verified capabilities in at most 200 words, preferably three to eight bullets. It contains no architecture, chronology, task IDs, dates, branches, commit hashes, code details, or test output.
-4. **Active Task:** Exactly one fully expanded task, or `None`. It contains the ID, title, branch, scope, acceptance criteria, required tests, exact test commands, and delegated prompt.
-5. **Queue:** At most five one-line future tasks. Only the active task has an expanded prompt.
-6. **Active Blockers:** At most five concise current blockers. Resolved blockers are removed immediately.
-7. **Recently Completed:** At most five one-line entries containing task ID, title, result, and Implementer commit hash.
+1. **Project Goal:** the stable macro-goal in at most 100 words.
+2. **Test Policy:** testing framework, full-suite command, and targeted-test convention only.
+3. **Current Implementation Summary:** a rewritten snapshot of verified capabilities in at most 200 words, preferably three to eight bullets. It contains no architecture, chronology, task IDs, dates, branches, commit hashes, code details, or test output.
+4. **Active Task:** exactly one fully expanded task, or `None`. It contains the ID, title, branch, scope, acceptance criteria, required tests, exact test commands, and delegated prompt.
+5. **Queue:** at most five one-line future tasks. Only the active task has an expanded prompt.
+6. **Active Blockers:** at most five concise current blockers. Resolved blockers are removed immediately.
+7. **Recently Completed:** at most five one-line entries containing task ID, title, result, and Implementer commit hash.
 
 The 200-word summary is part of the overall file budget. The Architect can count only its body with:
 
@@ -159,10 +160,10 @@ awk '/^## Current Implementation Summary/{capture=1; next} /^## /{capture=0} cap
 
 Task lifecycle:
 
-- **Promotion:** Move one Queue item into Active Task and expand only that item. Do not keep an expanded duplicate in Queue.
-- **Success:** After independent verification, collapse Active Task into one Recently Completed line, rewrite the implementation summary, remove resolved blockers, retain only the five newest completion entries, and set Active Task to `None`.
-- **Failure or timeout:** Keep one Active Task and rewrite it in place with only the latest checkpoint, current status, remaining scope, blocker, revised approach, acceptance criteria, and test commands. Do not append attempt narratives or paste the handoff.
-- **Pruning:** Before every delegation and after every review, remove stale queue items, superseded prompts, resolved blockers, old completion entries, code snippets, copied architecture, test logs, and file-by-file narratives.
+- **Promotion:** move one Queue item into Active Task and expand only that item. Do not keep an expanded duplicate in Queue.
+- **Success:** after independent verification, collapse Active Task into one Recently Completed line, rewrite the implementation summary, remove resolved blockers, retain only the five newest completion entries, and set Active Task to `None`.
+- **Failure or timeout:** keep one Active Task and rewrite it in place with only the latest checkpoint, current status, remaining scope, blocker, revised approach, acceptance criteria, and test commands. Do not append attempt narratives or paste the handoff.
+- **Pruning:** before every delegation and after every review, remove stale queue items, superseded prompts, resolved blockers, old completion entries, code snippets, copied architecture, test logs, and file-by-file narratives.
 
 The Implementer does not read or edit `TASKS.md` and does not draft `Current Implementation Summary`. It receives one complete delegated prompt and returns a concise handoff; the Architect decides how to update task state after reviewing the commit.
 
@@ -212,7 +213,7 @@ touch my-pi-project/implementer/src/.gitkeep
 cd my-pi-project
 git init -b main
 git add README.md architect implementer
-git commit -m "chore: initialize sequential agent workflow"
+git commit -m "Initialize sequential agent workflow."
 ```
 
 If you add this workflow to an existing repository:
@@ -546,5 +547,3 @@ For concurrent Implementers or stronger branch isolation, use separate Git workt
 - [Pi repository and documentation](https://github.com/earendil-works/pi)
 - [Pi project-context loading](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/resource-loader.ts)
 - [Pi Bash timeout implementation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/tools/bash.ts)
-
-Descriptions of Pi's context loading and timeout behavior are paraphrased from the linked source files.
