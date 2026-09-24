@@ -49,7 +49,7 @@ my-pi-project/
 ├── architect/
 │   ├── AGENTS.md               # Architect role and orchestration contract
 │   ├── DESIGN.md               # Generated and maintained by the Architect
-│   └── TASKS.md                # Macro-goal, task history, and delegated prompts
+│   └── TASKS.md                # Bounded rolling queue and implementation summary
 └── implementer/
     ├── AGENTS.md               # Implementer role and execution contract
     ├── package.json            # Example project manifest; language-dependent
@@ -63,6 +63,108 @@ All implementation artifacts belong under `implementer/`, including source code,
 This boilerplate does not include `architect/DESIGN.md`. The Architect creates and populates it before the first delegation. Do not add an empty `DESIGN.md`: an existing but blank file provides no architectural guidance.
 
 The example manifest and `tests/` directory are illustrative rather than mandatory. Use the conventions of the chosen language and framework, but keep them inside `implementer/`.
+
+## `DESIGN.md` context budget
+
+`architect/DESIGN.md` is a compact map of the **current architecture**, not a changelog, implementation journal, task tracker, or substitute for source code. Every later reference in this README to reading or updating `DESIGN.md` is governed by this policy.
+
+The document has two simultaneous hard limits:
+
+- No more than **2,000 words**
+- No more than **12,000 bytes**
+
+The Architect measures both before loading an existing design and after every edit:
+
+```bash
+wc -w DESIGN.md
+wc -c DESIGN.md
+```
+
+The word limit bounds semantic content; the byte limit catches copied code, large tables, diagrams, and other token-heavy material. If an existing design exceeds either limit, the Architect does not load it during normal planning or delegate implementation. It performs dedicated compaction first, using ranged reads of no more than 200 lines and 6,000 bytes each. Before cumulative legacy excerpts in one context exceed 12,000 bytes, it stops and continues in a fresh Architect session. Git preserves the original history, so copied excerpts must not accumulate in separate notes.
+
+The Implementer performs its Git preflight first, then checks the same limits before reading `../architect/DESIGN.md`. If the file is missing or over budget, the Implementer makes no changes and asks the Architect to create or prune it. After reading a within-budget file once, it also rejects an empty design, missing required sections, or content that is primarily a changelog or historical dump.
+
+Keep only these sections:
+
+- **System Overview:** Purpose, stack, and global constraints in at most eight bullets.
+- **Component Architecture:** One compact entry per active component with its responsibility, dependencies, and canonical source path.
+- **Data Models and Flow:** Cross-component state, persistence, ownership, and critical data movement only.
+- **External Interfaces:** Stable public contracts and integrations, preferably linked to their canonical schema or source.
+- **Known Architectural Debt:** At most ten active, actionable architectural issues; resolved items are removed immediately. Implementation status belongs in `TASKS.md`.
+
+Use the appropriate source of truth for everything else:
+
+| Information | Store it in |
+| --- | --- |
+| Current cross-cutting architecture and constraints | `DESIGN.md` |
+| Active architectural problems | `DESIGN.md` under `Known Architectural Debt` |
+| Current verified product capabilities | `TASKS.md` under `Current Implementation Summary` |
+| Active prompt, queue, blockers, and recent result references | Other bounded sections in `TASKS.md` |
+| Narrative completion history and prior document versions | Git history |
+| Code-level behavior, signatures, and dependencies | Source code and manifests |
+| Detailed test output and task-level diagnostics | Tests and commit handoffs |
+| Exceptional long-lived decision rationale | A focused file under `architect/decisions/` |
+
+At most five completed tasks remain in `TASKS.md` as terse Recently Completed entries with their result and Implementer commit reference. Older entries and detailed completion narratives belong in Git history and must not be duplicated in either state document.
+
+A decision record is created only when important rationale cannot fit in `DESIGN.md`. The design links to it with one sentence, and an agent reads it only when a task specifically requires that decision. Do not create a general archive that every agent loads.
+
+Before every delegation and after each reviewed cycle, the Architect follows this maintenance sequence:
+
+1. Validate the required structure, section limits, content boundaries, and DRY rules as well as the size budget.
+2. If the document is compliant and the current architecture, active constraints, and known debt did not change, leave it untouched.
+3. If any policy check fails, clean it up even when the architecture itself did not change.
+4. Revise existing entries in place rather than appending a cycle summary.
+5. Delete stale statements, resolved debt, superseded alternatives, duplicates, and implementation history.
+6. Replace copied detail with short repository-relative references to canonical code, schemas, tests, or manifests.
+7. Re-run both size checks and compress further if either budget is exceeded.
+
+Do not paste `DESIGN.md` into task prompts or handoffs. Both agents should cite only the relevant section or specifically required decision record.
+
+## `TASKS.md` hygiene and context budget
+
+`architect/TASKS.md` is a rolling execution queue and fast project-status snapshot, not a permanent task archive. Git preserves removed prompts, attempts, and completion history.
+
+The whole file has two hard limits:
+
+- No more than **1,500 words**
+- No more than **10,000 bytes**
+
+The Architect measures it before loading and after every edit:
+
+```bash
+wc -w TASKS.md
+wc -c TASKS.md
+```
+
+If an existing file is oversized, the Architect does not read it in full. It uses targeted searches to locate headings, unchecked work, current blockers, and recent completions; reads ranges of no more than 200 lines and 6,000 bytes; and rewrites the file into the required structure. It starts a fresh session before cumulative legacy excerpts exceed 10,000 bytes.
+
+Keep exactly these top-level sections:
+
+1. **Project Goal:** The stable macro-goal in at most 100 words.
+2. **Test Policy:** Testing framework, full-suite command, and targeted-test convention only.
+3. **Current Implementation Summary:** A rewritten snapshot of verified capabilities in at most 200 words, preferably three to eight bullets. It contains no architecture, chronology, task IDs, dates, branches, commit hashes, code details, or test output.
+4. **Active Task:** Exactly one fully expanded task, or `None`. It contains the ID, title, branch, scope, acceptance criteria, required tests, exact test commands, and delegated prompt.
+5. **Queue:** At most five one-line future tasks. Only the active task has an expanded prompt.
+6. **Active Blockers:** At most five concise current blockers. Resolved blockers are removed immediately.
+7. **Recently Completed:** At most five one-line entries containing task ID, title, result, and Implementer commit hash.
+
+The 200-word summary is part of the overall file budget. The Architect can count only its body with:
+
+```bash
+awk '/^## Current Implementation Summary/{capture=1; next} /^## /{capture=0} capture' TASKS.md | wc -w
+```
+
+`Current Implementation Summary` answers “what verified behavior exists now?” It is updated in place only after independent verification and approval for merge. `DESIGN.md` answers “how is the system structured?” and its final section contains only active architectural debt. The two documents must not repeat each other.
+
+Task lifecycle:
+
+- **Promotion:** Move one Queue item into Active Task and expand only that item. Do not keep an expanded duplicate in Queue.
+- **Success:** After independent verification, collapse Active Task into one Recently Completed line, rewrite the implementation summary, remove resolved blockers, retain only the five newest completion entries, and set Active Task to `None`.
+- **Failure or timeout:** Keep one Active Task and rewrite it in place with only the latest checkpoint, current status, remaining scope, blocker, revised approach, acceptance criteria, and test commands. Do not append attempt narratives or paste the handoff.
+- **Pruning:** Before every delegation and after every review, remove stale queue items, superseded prompts, resolved blockers, old completion entries, code snippets, copied architecture, test logs, and file-by-file narratives.
+
+The Implementer does not read or edit `TASKS.md` and does not draft `Current Implementation Summary`. It receives one complete delegated prompt and returns a concise handoff; the Architect decides how to update task state after reviewing the commit.
 
 ## Core safety invariants
 
@@ -128,12 +230,15 @@ If you add this workflow to an existing repository:
 
 Start the parent Pi process from `architect/`. Its contract requires the Architect to:
 
-- Read `../README.md`, local `TASKS.md`, and local `DESIGN.md` when present.
+- Read `../README.md`, then measure and validate local `TASKS.md` and `DESIGN.md` before loading them fully.
 - Inspect only relevant files in `../implementer/` while planning.
-- Create and continuously maintain `DESIGN.md`.
-- Discover or choose the testing framework used in the implementation workspace.
+- Create `DESIGN.md` and keep it policy-compliant, current, DRY, and within both size limits.
+- Keep `Known Architectural Debt` limited to active structural problems; store implementation status only in `TASKS.md`.
+- Maintain `TASKS.md` as a 1,500-word/10,000-byte rolling queue with one expanded Active Task and bounded Queue, Blockers, and Recently Completed sections.
+- Rewrite `Current Implementation Summary` after verified success, keeping it at or below 200 words and free of architecture or history.
+- Discover or choose the testing framework used in the implementation workspace and record its compact commands under `Test Policy`.
 - Decompose the macro-goal into tasks that fit within the 20-minute child window.
-- Add acceptance criteria, required tests, exact test commands, and an implementation branch to every delegated prompt.
+- Add acceptance criteria, required tests, exact test commands, and an implementation branch only to the single Active Task and delegated prompt.
 - Commit Architect-owned planning state on `main` before creating the implementation branch.
 - Create a branch named `implementer/<task-id>-<short-slug>` from `main`.
 - Launch the child from `../implementer/` and wait for it to finish.
@@ -150,8 +255,11 @@ The Architect's direct commits may contain `architect/DESIGN.md` and `architect/
 Start every child Pi process from `implementer/`. Its contract requires the Implementer to:
 
 - Work only within the implementation workspace.
-- Read `../architect/DESIGN.md` without modifying any file under `../architect/`.
-- Leave root-level repository files unchanged.
+- Treat `../architect/TASKS.md` and its implementation summary as unreadable, Architect-owned state; use only the delegated prompt.
+- Complete Git preflight, then measure and validate `../architect/DESIGN.md` before reading it once.
+- Require `Known Architectural Debt` rather than implementation status in the design.
+- Never draft task-ledger or implementation-summary updates in the handoff.
+- Leave all files under `../architect/` and at the repository root unchanged.
 - Verify the exact assigned branch and clean working tree before editing.
 - Refuse to work on `main`, on the wrong branch, or with unexpected pre-existing changes.
 - Change only files required by the delegated task.
@@ -164,27 +272,41 @@ Do not duplicate shortened copies of these contracts elsewhere. Keeping one auth
 
 ## Initialize `architect/TASKS.md`
 
-You may leave `architect/TASKS.md` empty and ask the Architect to populate it, or seed it with a macro-goal:
+The checked-in template already uses the required rolling structure. Seed only the Project Goal; the Architect fills the remaining state:
 
 ```markdown
-# Macro-Task: Build a Python user-authentication API
+# Project Goal
 
-**Testing Framework:** To be determined by the Architect
+[Describe the macro-goal in no more than 100 words.]
 
-## Tasks
+## Test Policy
 
-- [ ] Task 001: Define the user model and validation rules
-  - Branch: `implementer/001-user-model`
-  - Acceptance criteria:
-    - The model validates required fields.
-    - Invalid email addresses are rejected.
-  - Required tests:
-    - Unit tests for valid and invalid users.
-  - Test command: `python -m pytest tests/test_user.py`
-  - Delegated prompt: To be completed by the Architect.
+- Framework: To be determined by the Architect.
+- Full-suite command: To be determined by the Architect.
+- Targeted-test convention: To be determined by the Architect.
+
+## Current Implementation Summary
+
+No implementation has been independently verified yet.
+
+## Active Task
+
+None.
+
+## Queue
+
+None.
+
+## Active Blockers
+
+None.
+
+## Recently Completed
+
+None.
 ```
 
-The Architect appends tasks rather than deleting history. Each task must be small enough to implement, test, stabilize, commit, and report within 20 minutes.
+When work is ready for delegation, the Architect places exactly one expanded entry under Active Task. Queue entries remain one-line titles, and completed entries retain only the task ID, title, result, and Implementer commit hash. Removed detail remains recoverable from Git.
 
 ## End-to-end execution flow
 
@@ -209,12 +331,13 @@ Because `architect/` and `implementer/` are siblings, this session does not load
 
 Before delegation, the Architect:
 
-1. Reads `../README.md`, `TASKS.md`, and `DESIGN.md` when present.
-2. Creates and populates `DESIGN.md` if it is missing.
-3. Chooses the exact implementation branch name.
-4. Defines a focused task, acceptance criteria, required tests, exact test commands, and delegated prompt.
-5. Confirms that `main` is checked out and inspects `git status --short`.
-6. Commits its finalized state before creating the implementation branch:
+1. Reads `../README.md`, then measures `TASKS.md` and `DESIGN.md` before loading either document fully.
+2. Creates and populates `DESIGN.md` if it is missing and validates the five-section architecture-only structure.
+3. Validates the rolling `TASKS.md` structure and both whole-file limits.
+4. Chooses the exact implementation branch name, promotes one Queue item to Active Task, and expands only that task with its scope, acceptance criteria, required tests, exact commands, and delegated prompt.
+5. Confirms that Current Implementation Summary is no more than 200 words and contains only verified current capabilities.
+6. Confirms that `main` is checked out and inspects `git status --short`.
+7. Commits the finalized Architect state before creating the implementation branch:
 
 ```bash
 git add DESIGN.md TASKS.md
@@ -259,7 +382,7 @@ The branch must exactly match the prompt, must not be `main`, and the working tr
 
 ### 5. Implement, test, and commit
 
-The Implementer reads `../architect/DESIGN.md`, changes only delegated files in its current workspace, writes or updates tests, and runs the exact test commands. It stages only intentional paths:
+After Git preflight, the Implementer measures `../architect/DESIGN.md`, verifies its required architecture-only structure, and reads it once. It never reads `TASKS.md`. It then changes only delegated files in its current workspace, writes or updates tests, and runs the exact test commands. It stages only intentional paths:
 
 ```bash
 git add src/user.py tests/test_user.py
@@ -323,7 +446,7 @@ If review fails, the Architect records the findings and delegates a corrective m
 
 ### 8. Update state and merge approved work
 
-After successful review, the Architect updates its local `DESIGN.md` and `TASKS.md` and commits those state changes separately on the implementation branch:
+After successful review, the Architect updates `DESIGN.md` only when the current architecture or architectural debt changed. It applies the TASKS success lifecycle: collapse Active Task into one Recently Completed line, rewrite the ≤200-word Current Implementation Summary, remove resolved blockers, trim old entries, and set Active Task to `None`. After validating both document budgets, it commits those state changes separately on the implementation branch:
 
 ```bash
 git add DESIGN.md TASKS.md
@@ -370,7 +493,7 @@ RESULT: FAILURE
 Committed a stable WIP checkpoint; refresh validation remains incomplete.
 ```
 
-The Architect reviews the checkpoint but does not merge it merely because it is committed. It decomposes the remaining work and starts another child sequentially from `implementer/` on the **same implementation branch**, using the checkpoint as the starting state.
+The Architect reviews the checkpoint but does not merge it merely because it is committed. It keeps the same Active Task and rewrites it in place with only the latest checkpoint, status, remaining scope, current blocker, revised approach, acceptance criteria, and test commands. It does not paste the handoff or add an attempt history. The next child starts sequentially from `implementer/` on the **same implementation branch**, using that checkpoint as its starting state.
 
 If the child made no repository changes, it should not fabricate an empty commit. It reports `COMMIT: NONE` and explains the blocker.
 
