@@ -1,131 +1,353 @@
-# Sequential Pi Multi-Agent Architecture Setup
+# Sequential Pi Multi-Agent Workflow
 
-This guide provides the step-by-step instructions to set up a parent-child multi-agent system using Pi, optimized for local hardware constraints (like Qwen 3.8 q8 with a 64k context window).
-This system enforce a sequential execution between the two agents, so that the local model is never under pressure.
-The main advantage is that the parent "architect" agent keeps a lightweight overall view of the macro-task without bloating the context window with implementation details. On the other side, the child "implementer" agent get enough context to the carry out the narrow and focused implementation task that has been handed off to it, without bloating its context window with information that are not strictly related to the task.
+This boilerplate configures a sequential parent-child workflow for [Pi](https://github.com/earendil-works/pi):
 
-## Step 1: Create the Project Structure
+- The parent **Architect** agent plans the work, maintains project state, creates implementation branches, delegates one focused task at a time, reviews commits, and merges approved work.
+- The child **Implementer** agent works in a separate Pi process, changes production code and tests on the assigned branch, runs the required checks, and returns a commit-based handoff.
 
-First, set up your root directory and the source code sub-folder.
-This isolation is critical for separating the parent and child agent instructions.
+Only one agent performs implementation work at a time. This makes the workflow suitable for local models and machines that cannot run multiple inference-heavy agents concurrently. It also keeps implementation details out of the Architect's conversation history while giving each Implementer a narrow, fresh context.
 
-```bash
-mkdir my-pi-project
-cd my-pi-project
-mkdir src
-touch TASKS.md AGENTS.md src/AGENTS.md
-```
+A commit is a **reviewable checkpoint**, not an approval. The Implementer creates commits; the Architect verifies them and is the only agent allowed to merge into `main`.
 
-Your directory tree should look like this:
+## How the workflow is isolated
+
+The parent and child run in separate Pi processes, so they do not share conversation histories. Their durable shared state is the repository: `DESIGN.md`, `TASKS.md`, the assigned implementation branch, committed code, and test results included in handoffs.
+
+The directory structure does **not** provide hard instruction isolation. Pi loads project context files by walking upward from the current working directory. Therefore:
+
+- A Pi session started at the project root loads the root `AGENTS.md`.
+- A child started from `src` loads both the root `AGENTS.md` and `src/AGENTS.md`.
+
+The two files in this boilerplate contain explicit role-scope rules to handle that inheritance. When running from `src`, the nearer `src/AGENTS.md` establishes the Code Implementer role, and Architect-only Git powers from the inherited root file do not apply.
+
+Pi may also load user-level or higher-level context files. Review those files if an agent behaves contrary to this boilerplate's rules. See Pi's current [project context loader](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/resource-loader.ts) for the discovery behavior.
+
+## Core safety invariants
+
+1. `main` is the integration branch.
+2. The Architect creates each implementation branch from `main`.
+3. The Implementer never commits directly to `main`.
+4. The Implementer commits completed work and stabilized partial work on the assigned branch.
+5. The Architect never authors or commits production code or tests.
+6. The Architect independently reviews and tests the committed changes.
+7. Failed, incomplete, or timed-out work remains on the implementation branch until corrected and approved.
+8. Only the Architect may merge an approved branch into `main`.
+9. Neither agent pushes to a remote unless the user explicitly requests it.
+
+## Prerequisites
+
+- Git, with a repository whose integration branch is named `main`
+- A current Pi installation with a configured model provider
+- A shell environment in which the Architect can launch `pi` from `src`
+- Enough model context for the project instructions, delegated prompt, relevant source files, and test output
+
+This workflow uses Pi's built-in Bash timeout parameter. No timeout extension or shell wrapper is required. The Architect requests a 1,200-second timeout when launching the child, while the child begins wrapping up after approximately 1,000 seconds. The remaining time is reserved for stabilization, testing, committing, and reporting. See Pi's current [Bash tool implementation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/tools/bash.ts) for timeout behavior.
+
+## Project Structure
 
 ```text
-[root]
-├── AGENTS.md        (Parent Agent Config)
-├── TASKS.md         (State & Prompt Tracker)
+my-pi-project/
+├── AGENTS.md          # Architect role and orchestration rules
+├── DESIGN.md          # Architectural source of truth; owned by the Architect
+├── TASKS.md           # Ordered task backlog and delegated prompts
 └── src/
-    └── AGENTS.md    (Child Agent Config)
+    ├── AGENTS.md      # Implementer role and execution rules
+    └── ...            # Production code and tests
 ```
 
-## Step 2: Install the Timeout Extension
+The boilerplate initially may not contain `DESIGN.md`. When it is missing, the Architect must create and populate it before delegating implementation. Do not create an empty `DESIGN.md`, because an existing but blank file does not provide useful architectural guidance.
 
-Install the extension that enables the bash timeout configuration.
-Run this command from your terminal:
+For a new project, copy the two authoritative instruction files from this boilerplate instead of reproducing their contents in another document:
 
 ```bash
-pi install npm:@piotr-oles/pi-bash-timeout
+mkdir -p my-pi-project/src
+cp /path/to/pi-seq-multi-agent/AGENTS.md my-pi-project/AGENTS.md
+cp /path/to/pi-seq-multi-agent/src/AGENTS.md my-pi-project/src/AGENTS.md
+touch my-pi-project/TASKS.md
+cd my-pi-project
+git init -b main
+git add AGENTS.md TASKS.md src/AGENTS.md
+git commit -m "Initialize sequential agent workflow."
 ```
 
-## Step 3: Configure the Timeout via a Shell Function
+If you add the workflow to an existing repository, preserve the existing source tree and copy only the two `AGENTS.md` files to their corresponding locations. Confirm that the repository has a `main` branch before launching the Architect.
 
-The `@piotr-oles/pi-bash-timeout` extension resolves its configuration from the
-environment (or CLI flags) at startup, before any project settings file would be
-loaded. Because of this, the timeout values must already be present in the
-environment when you launch `pi`. Its built-in defaults are a 120s default and a
-600s maximum, so any requested timeout above 600s gets capped unless you raise
-the maximum.
+## Configuration Files
 
-To make `pi` always launch with the raised timeouts, define a `pi` shell function
-in your `~/.zshrc` that injects the environment variables:
+### Root `AGENTS.md`: Architect contract
 
-```zsh
-# in ~/.zshrc
-pi() {
-  PI_BASH_DEFAULT_TIMEOUT_SECONDS=1200 \
-  PI_BASH_MAX_TIMEOUT_SECONDS=1300 \
-  command pi "$@"
-}
+The root file is the authoritative configuration for the parent agent. It requires the Architect to:
+
+- Read the project overview, task backlog, and architectural state.
+- Create and continuously maintain `DESIGN.md`.
+- Discover or choose the project's testing framework.
+- Decompose the macro-goal into tasks that an Implementer can complete within 20 minutes.
+- Include acceptance criteria, required tests, and exact test commands in every delegated prompt.
+- Create a dedicated branch named `implementer/<task-id>-<short-slug>` from `main`.
+- Pass the exact branch name to the child and never launch the child while `main` is checked out.
+- Inspect the returned commit and the complete branch delta against `main`.
+- Run tests independently before accepting the handoff.
+- Keep failed or partial work on the implementation branch for follow-up agents.
+- Merge only complete, verified work into `main`.
+
+The Architect owns `DESIGN.md` and `TASKS.md`. It may commit changes to those state files separately, but it must not write, stage, or commit production code or tests.
+
+### `src/AGENTS.md`: Implementer contract
+
+The nested file is the authoritative configuration for child sessions started from `src`. It requires the Implementer to:
+
+- Treat the inherited Architect identity as out of scope.
+- Read `../DESIGN.md` without modifying it.
+- Verify that the exact assigned implementation branch is checked out before editing.
+- Refuse to work on `main`, on the wrong branch, or in a working tree containing unexpected changes.
+- Change only the delegated production-code and test files.
+- Run the exact test commands from the delegated prompt.
+- Stage files by explicit path and commit completed or stabilized partial work.
+- Return the branch name, commit hash, test results, remaining work, and final working-tree status.
+- Avoid all branch creation, switching, merging, rebasing, deletion, and remote operations.
+
+Do not copy abbreviated versions of these contracts into this README. Keeping a single authoritative copy of each role prevents the documentation and executable instructions from drifting apart.
+
+## Initialize `TASKS.md`
+
+You can leave `TASKS.md` empty and ask the Architect to populate it, or seed it with a macro-goal:
+
+```markdown
+# Macro-Task: Build a Python user-authentication API
+
+**Testing Framework:** To be determined by the Architect
+
+## Tasks
+
+- [ ] Task 001: Define the user model and validation rules
+  - Acceptance criteria:
+    - The model validates required fields.
+    - Invalid email addresses are rejected.
+  - Required tests:
+    - Unit tests for valid and invalid users.
+  - Test command: `python -m pytest tests/test_user.py`
+  - Delegated prompt: To be completed by the Architect.
 ```
 
-Notes:
+Keep tasks small enough to complete, test, stabilize, and commit within the 20-minute child execution window. The Architect appends new tasks rather than replacing historical entries.
 
-- `command pi` calls the real `pi` binary and avoids the function calling itself.
-- `"$@"` forwards any flags you pass (e.g. `pi -p "..."`).
-- Environment variables are inherited by child processes, so a child agent spawned
-  from `src/` picks up the same timeouts as the parent.
-- The maximum is set slightly above 1200 so parent/child startup and shutdown
-  overhead does not race against the outer timeout.
+## End-to-End Execution Flow
 
-Reload your shell after editing:
+### 1. Start the Architect
 
-```zsh
-source ~/.zshrc
-```
-
-## Step 4: Configure the Parent Agent (The Architect)
-
-Open **[root]/AGENTS.md** and insert the following system instructions.
-This configures the parent to act as a planner, state manager, and delegator.
-
-```text
-You are the Lead Architect Agent. Your role is to analyze the codebase, define the testing strategy, decompose tasks into `TASKS.md`, and delegate execution.
-Rules:
-- **Filtered Analysis:** Always begin by scanning the project context using: `find src -type f -not -name "AGENTS.md" -exec cat {} +`
-- **Test Discovery & Decision:** Based on your analysis, determine the existing testing framework. If none exists, select the most appropriate standard framework for the language. 
-- **Task Management:** Draft all micro-tasks in `TASKS.md`. You must declare the chosen testing framework at the top of the file. Format each micro-task as a checklist item with a specific prompt.
-- **Test-Driven Prompts:** Every task prompt assigned to the child MUST include explicit instructions on what tests to write and the exact terminal command to run them.
-- **Delegation:** Spawn the child agent using `cd src && pi -p "[PROMPT FROM TASKS.md]"`. Explicitly set the bash tool call's timeout parameter to 1200 to accommodate local hardware execution. Wait for the call to finish.
-- **State Updates:** 
-  - On "RESULT: SUCCESS", mark the task `[x]` in `TASKS.md`.
-  - On "RESULT: FAILURE", analyze the child's error summary and rewrite the remaining uncompleted tasks/prompts in `TASKS.md` with a new technical or testing approach before delegating again.
-- Do NOT write or edit production code yourself.
-```
-
-## Step 5: Configure the Child Agent (The Implementer)
-
-Open **[root]/src/AGENTS.md** and insert the following instructions. This restricts the child to executing specific prompts, running tests, and outputting a clean exit state for the parent.
-
-```text
-You are a Code Implementer. Make specific code changes in this directory based on the prompt, write the requested tests, and verify your results.
-Rules:
-- Focus exclusively on the code changes and tests required by the parent's prompt.
-- Do not modify `AGENTS.md` under any circumstances.
-- **Mandatory Testing:** You must execute the test commands provided in your prompt. 
-- **Exit State:** At the very end of your execution, you MUST output an exit state. 
-  - Output exactly "RESULT: SUCCESS" only if all required tests pass.
-  - Output exactly "RESULT: FAILURE" if the tests fail or you encounter an unresolvable error. 
-  - Follow the exit state with a 1-sentence summary of the outcome or the specific test failure.
-- Avoid large, verbose context transfers; keep your final output as concise as possible.
-```
-
-## Step 6: Initialize the Task Tracker
-
-Open **[root]/TASKS.md**. You can leave this blank for the parent to fill out entirely, or you can seed it with your macro-task goal at the top to give the parent immediate context upon startup.
-
-```text
-# Macro-Task: [Insert your overall goal here, e.g., Implement a Python User Auth API]
-**Testing Framework:** [To be determined by Architect]
-
-- [ ] Task 1: 
-  - Prompt: 
-```
-
-## Step 7: Launch the System
-
-From your [root] directory, simply start the Pi agent:
+From the project root:
 
 ```bash
 pi
 ```
 
-Once the interface loads, ask the agent to "Begin working on the macro-task defined in TASKS.md."
-The parent will scan the directory, populate the task list, and sequentially spawn child agents to handle the implementation!
+Ask it to begin the macro-task recorded in `TASKS.md`, for example:
+
+```text
+Begin working on the macro-task in TASKS.md. Follow the Architect workflow in AGENTS.md.
+```
+
+### 2. Plan and prepare repository state
+
+Before delegation, the Architect:
+
+1. Reads `README.md`, `TASKS.md`, and `DESIGN.md` when present.
+2. Creates `DESIGN.md` if it is missing.
+3. Defines the next focused task, its acceptance criteria, required tests, and exact test commands.
+4. Ensures Architect-owned planning changes are committed separately and the working tree is clean.
+5. Starts from `main` and creates a branch such as:
+
+```bash
+git switch main
+git switch -c implementer/001-user-model
+```
+
+The Architect must not discard, reset, overwrite, or stash unrelated changes to obtain a clean tree. It stops and reports the conflict instead.
+
+### 3. Delegate one task
+
+The Architect launches the child from `src` with a Bash tool timeout of 1,200 seconds:
+
+```bash
+cd src && pi -p "<focused prompt from TASKS.md>"
+```
+
+The prompt must identify:
+
+- The exact implementation branch
+- `main` as the base and integration branch
+- The allowed file and behavior scope
+- Acceptance criteria
+- Tests to write or update
+- Exact test commands
+- The requirement to commit successful or stabilized partial work
+- Prohibited Git operations
+
+### 4. Perform the Implementer preflight
+
+Before changing files, the child checks:
+
+```bash
+git branch --show-current
+git status --short
+```
+
+The branch must exactly match the assigned branch and must not be `main`. Unexpected pre-existing changes are a blocking failure; the child reports them without cleaning, resetting, stashing, or modifying the repository.
+
+### 5. Implement, test, and commit
+
+The Implementer reads `../DESIGN.md`, makes only the delegated changes, writes the requested tests, and runs the exact test commands. It stages only files it intentionally changed:
+
+```bash
+git add path/to/changed-file path/to/test-file
+git commit -m "feat: implement focused capability"
+git rev-parse HEAD
+git status --short
+```
+
+Broad staging commands such as `git add .` and `git add -A` are forbidden because they can capture unrelated or Architect-owned changes.
+
+### 6. Return a commit-based handoff
+
+A successful handoff should resemble:
+
+```text
+BRANCH: implementer/001-user-model
+COMMIT: a1b2c3d
+
+Completed:
+- Added the user model and validation.
+- Added unit tests for valid and invalid inputs.
+
+Tests:
+- python -m pytest tests/test_user.py — PASS
+
+Remaining work:
+- None.
+
+Working tree:
+- Clean.
+
+RESULT: SUCCESS
+Implemented and verified the delegated user-model task.
+```
+
+`RESULT: SUCCESS` means the delegated acceptance criteria are complete and every required test passed. A commit does not by itself make the work successful or approved.
+
+### 7. Review the committed work
+
+The Architect verifies the exact checkpoint rather than trusting the summary:
+
+```bash
+git branch --show-current
+git show <commit-id>
+git diff main...<implementation-branch>
+```
+
+It confirms that:
+
+- The commit exists and belongs to the assigned branch.
+- Only delegated production code and tests changed.
+- `AGENTS.md`, `DESIGN.md`, `TASKS.md`, and unrelated files were not changed by the Implementer.
+- The implementation follows `DESIGN.md` and the acceptance criteria.
+- The required tests pass when run independently.
+
+If review fails, the Architect records the findings and delegates a corrective task on the same branch. It does not merge the branch.
+
+### 8. Update state and merge approved work
+
+After successful review, the Architect updates `DESIGN.md` and `TASKS.md`, commits those Architect-owned changes separately, and merges the completed branch into `main` with a non-fast-forward merge:
+
+```bash
+git switch main
+git merge --no-ff implementer/001-user-model
+```
+
+The Architect runs the relevant tests again after the merge. It deletes the implementation branch only after the merge and post-merge tests succeed. It does not push `main` unless the user explicitly requests it.
+
+## Timeout and partial-work recovery
+
+The child has a strict 1,200-second execution window. After approximately 1,000 seconds, it must stop starting new work and enter Wrap-Up mode:
+
+1. Stabilize syntax and leave the code in the safest practical state.
+2. Run the most relevant tests that fit within the remaining time.
+3. Stage only delegated files.
+4. Create a clearly identified WIP checkpoint commit.
+5. Return the commit hash, test status, unfinished work, blockers, and working-tree status.
+6. End with `RESULT: FAILURE`, because the delegated task is incomplete.
+
+Example partial handoff:
+
+```text
+BRANCH: implementer/002-token-service
+COMMIT: d4e5f6a
+
+Completed:
+- Added token generation and passing unit tests.
+
+In progress:
+- Token refresh validation is stubbed with a TODO.
+
+Tests:
+- python -m pytest tests/test_tokens.py — FAIL (2 refresh tests)
+
+Remaining work:
+- Implement refresh expiry validation.
+
+Working tree:
+- Clean.
+
+RESULT: FAILURE
+Committed a stable WIP checkpoint; refresh validation remains incomplete.
+```
+
+The Architect reviews this checkpoint but does not merge it merely because it is committed. It decomposes the remaining work and starts another child sequentially on the **same implementation branch**, using the checkpoint commit as the starting state.
+
+If the child made no repository changes, it should not fabricate an empty commit. It reports `COMMIT: NONE` and explains the blocker.
+
+## Troubleshooting
+
+### The child tries to act as the Architect
+
+Confirm that:
+
+- The child was launched from `src`.
+- `src/AGENTS.md` exists and contains the Code Implementer role-scope rule.
+- No user-level or ancestor context file overrides the intended behavior.
+- The delegated prompt does not assign Architect responsibilities to the child.
+
+Remember that the child receives both project `AGENTS.md` files; the nested file narrows the role but does not prevent the root file from entering the model context.
+
+### The Architect tells the child not to commit
+
+That instruction violates this workflow. The Implementer owns implementation commits, including stabilized timeout checkpoints. The Architect owns review and integration. Restate this invariant positively in the delegated prompt and inspect user-level Pi context for competing Git rules.
+
+### The child starts on `main` or the wrong branch
+
+The child must stop before editing and return `RESULT: FAILURE`. The Architect should restore a clean, known repository state without discarding unrelated work, create or check out the intended implementation branch, and delegate again.
+
+### The working tree is unexpectedly dirty
+
+Neither agent should automatically clean, reset, or stash the tree. Determine who owns each change first. Commit Architect-owned state separately, preserve unrelated user work, and delegate only from a clean implementation branch.
+
+### Tests pass in the child but fail after merge
+
+The Architect must stop and report the post-merge failure without pushing. Investigate integration differences on `main`; do not conceal the failure or treat the prior child result as sufficient verification.
+
+## Design Trade-offs
+
+This workflow favors traceability and low concurrent resource use over speed:
+
+- Tasks run sequentially rather than in parallel.
+- Each child starts with a fresh conversation and must rediscover some local context.
+- Ancestor `AGENTS.md` loading consumes part of the child's context window.
+- A shared working tree means branch switches affect both parent and child processes; the Architect must wait for the child to finish before switching branches.
+- Dedicated branches, commit hashes, and independent review add Git overhead but provide clear provenance and reliable timeout recovery.
+
+For parallel agents, use separate Git worktrees or separate repository clones. Do not run concurrent Implementers in this shared-worktree design.
+
+## References
+
+- [Pi repository and documentation](https://github.com/earendil-works/pi)
+- [Pi project-context loading](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/resource-loader.ts)
+- [Pi Bash timeout implementation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/tools/bash.ts)
