@@ -144,13 +144,13 @@ Keep exactly these top-level sections:
 
 1. **Project Goal:** the stable macro-goal in at most 100 words.
 2. **Test Policy:** testing framework, full-suite command, and targeted-test convention only.
-3. **Current Implementation Summary:** a rewritten snapshot of verified capabilities in at most 200 words, preferably three to eight bullets. It contains no architecture, chronology, task IDs, dates, branches, commit hashes, code details, or test output.
+3. **Current Implementation Summary:** a rewritten snapshot of verified capabilities in at most 250 words, preferably three to eight bullets. It contains no architecture, chronology, task IDs, dates, branches, commit hashes, code details, or test output.
 4. **Active Task:** exactly one fully expanded task, or `None`. It contains the ID, title, branch, scope, acceptance criteria, required tests, exact test commands, and delegated prompt.
 5. **Queue:** at most five one-line future tasks. Only the active task has an expanded prompt.
 6. **Active Blockers:** at most five concise current blockers. Resolved blockers are removed immediately.
 7. **Recently Completed:** at most five one-line entries containing task ID, title, result, and Implementer commit hash.
 
-The 200-word summary is part of the overall file budget. The Architect can count only its body with:
+The 250-word summary is part of the overall file budget. The Architect can count only its body with:
 
 ```bash
 awk '/^## Current Implementation Summary/{capture=1; next} /^## /{capture=0} capture' TASKS.md | wc -w
@@ -236,7 +236,7 @@ Start the parent Pi process from `architect/`. Its contract requires the Archite
 - Create `DESIGN.md` and keep it policy-compliant, current, DRY, and within both size limits.
 - Keep `Known Architectural Debt` limited to active structural problems; store implementation status only in `TASKS.md`.
 - Maintain `TASKS.md` as a 1,500-word/10,000-byte rolling queue with one expanded Active Task and bounded Queue, Blockers, and Recently Completed sections.
-- Rewrite `Current Implementation Summary` after verified success, keeping it at or below 200 words and free of architecture or history.
+- Rewrite `Current Implementation Summary` after verified success, keeping it at or below 250 words and free of architecture or history.
 - Discover or choose the testing framework used in the implementation workspace and record its compact commands under `Test Policy`.
 - Decompose the macro-goal into tasks that fit within the 20-minute child window.
 - Add acceptance criteria, required tests, exact test commands, and an implementation branch only to the single Active Task and delegated prompt.
@@ -336,7 +336,7 @@ Before delegation, the Architect:
 2. Creates and populates `DESIGN.md` if it is missing and validates the five-section architecture-only structure.
 3. Validates the rolling `TASKS.md` structure and both whole-file limits.
 4. Chooses the exact implementation branch name, promotes one Queue item to Active Task, and expands only that task with its scope, acceptance criteria, required tests, exact commands, and delegated prompt.
-5. Confirms that Current Implementation Summary is no more than 200 words and contains only verified current capabilities.
+5. Confirms that Current Implementation Summary is no more than 250 words and contains only verified current capabilities.
 6. Confirms that `main` is checked out and inspects `git status --short`.
 7. Commits the finalized Architect state before creating the implementation branch:
 
@@ -447,7 +447,7 @@ If review fails, the Architect records the findings and delegates a corrective m
 
 ### 8. Update state and merge approved work
 
-After successful review, the Architect updates `DESIGN.md` only when the current architecture or architectural debt changed. It applies the TASKS success lifecycle: collapse Active Task into one Recently Completed line, rewrite the ≤200-word Current Implementation Summary, remove resolved blockers, trim old entries, and set Active Task to `None`. After validating both document budgets, it commits those state changes separately on the implementation branch:
+After successful review, the Architect updates `DESIGN.md` only when the current architecture or architectural debt changed. It applies the TASKS success lifecycle: collapse Active Task into one Recently Completed line, rewrite the ≤250-word Current Implementation Summary, remove resolved blockers, trim old entries, and set Active Task to `None`. After validating both document budgets, it commits those state changes separately on the implementation branch:
 
 ```bash
 git add DESIGN.md TASKS.md

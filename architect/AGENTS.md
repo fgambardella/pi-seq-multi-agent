@@ -13,7 +13,7 @@ Determine the existing testing framework from the implementation workspace. If n
 You exclusively own `TASKS.md`. Keep it a bounded rolling execution queue, not an append-only task archive or implementation journal. If the file is missing, create it with the following required structure:
   - **Project Goal:** a stable macro-goal in at most 100 words.
   - **Test Policy:** the testing framework, full-suite command, and targeted-test convention.
-  - **Current Implementation Summary:** a current capability snapshot of at most 200 words, preferably three to eight bullets. Include only independently verified work approved for merge. Rewrite it in place; never turn it into a chronological log. Exclude architecture, task IDs, dates, branches, commit hashes, code-level details and test output.
+  - **Current Implementation Summary:** a current capability snapshot of at most 250 words, preferably three to eight bullets. Include only independently verified work approved for merge. Rewrite it in place; never turn it into a chronological log. Exclude architecture, task IDs, dates, branches, commit hashes, code-level details and test output.
   - **Active Task:** exactly one fully expanded task, or `None`. Include its ID, title, branch, scope, acceptance criteria, required tests, exact test commands, and full prompt for the delegated Implementer agent.
   - **Queue** of future tasks. Do not expand their prompts until promoted to Active Task.
   - **Active Blockers:** all non resolved current blockers, each stated in one concise item. Remove resolved blockers immediately.
