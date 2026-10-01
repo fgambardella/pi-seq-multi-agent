@@ -50,7 +50,9 @@ my-pi-project/
 ├── architect/
 │   ├── AGENTS.md               # Architect role and orchestration contract
 │   ├── DESIGN.md               # Software architecture desing document generated and maintained by the Architect
-│   └── TASKS.md                # Bounded rolling queue of tasks to implement and implementation summary of older tasks
+│   ├── TASKS.md                # Bounded rolling queue of tasks to implement and implementation summary of older tasks
+│   └── tools/
+│       └── implementer-run.sh  # Read-only execution clock and command wrapper
 └── implementer/
     ├── AGENTS.md               # Implementer role and execution contract
     ├── package.json            # Example project manifest; language-dependent
@@ -59,7 +61,7 @@ my-pi-project/
     └── tests/                  # Example test location; framework-dependent
 ```
 
-All implementation artifacts belong under `implementer/`, including source code, tests, dependency manifests, build files, linters, formatters, migrations, and generated project configuration. Harness state belongs under `architect/`.
+All implementation artifacts belong under `implementer/`, including source code, tests, dependency manifests, build files, linters, formatters, migrations, and generated project configuration. Harness state and the read-only execution-clock tooling belong under `architect/`.
 
 This boilerplate does not include `architect/DESIGN.md`. The Architect creates and populates it before the first delegation. Do not add an empty `DESIGN.md`: an existing but blank file provides no architectural guidance.
 
@@ -185,29 +187,49 @@ The Implementer does not read or edit `TASKS.md` and does not draft `Current Imp
 - Git, with a repository whose integration branch is named `main`
 - A current Pi installation with a configured model provider
 - A shell environment in which the Architect can launch a second Pi process from `../implementer/`
+- Bash and `date +%s` for the executable `architect/tools/implementer-run.sh` clock wrapper
 - Enough model context for the applicable agent instructions, delegated prompt, relevant project files, and test output
 
-This workflow uses Pi's built-in Bash timeout parameter. No timeout extension or shell wrapper is required. The Architect gives the child-launch Bash call a 1,200-second timeout, while the Implementer begins wrapping up after approximately 1,000 seconds. The remaining time is reserved for stabilization, testing, committing, and reporting.
+This workflow uses Pi's built-in Bash timeout parameter to enforce the hard limit; no timeout extension is required. The Architect gives the child-launch Bash call a 1,200-second timeout and supplies `IMPLEMENTER_STARTED_AT` immediately before starting Pi. The Implementer uses the bundled clock wrapper to observe elapsed time, enters Wrap-Up at 1,000 seconds, prioritizes checkpointing at 1,100 seconds, and targets a handoff by 1,150 seconds. The final 50 seconds are a safety margin.
 
 The timeout is a Bash **tool-call parameter**, not a `pi` command-line option. Conceptually, the Architect invokes:
 
 ```text
 Bash tool call
-├── command: cd ../implementer && pi -p "..."
+├── command: cd ../implementer && IMPLEMENTER_STARTED_AT="$(date +%s)" pi -p "..."
 └── timeout: 1200 seconds
 ```
 
 See Pi's current [Bash tool implementation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/tools/bash.ts) for its timeout behavior.
+
+### Execution clock usage
+
+From `implementer/`, the child runs a standalone check as its first tool call and wraps every subsequent Bash command:
+
+```bash
+../architect/tools/implementer-run.sh
+../architect/tools/implementer-run.sh git status --short
+../architect/tools/implementer-run.sh python -m pytest tests/test_user.py
+../architect/tools/implementer-run.sh bash -c 'git diff --check && git status --short'
+```
+
+The wrapper prints `TASK_CLOCK` readings to stderr before and after each command, even when the command fails normally. It preserves arguments, the working directory, stdout, and command failure status; a clock error returns a nonzero status even if the command succeeded. Shell syntax such as pipes and redirection belongs inside `bash -c '...'`, not outside the wrapper. Without arguments, the script only checks the clock. It uses the inherited launch timestamp across Bash calls and creates no timer files.
+
+The phase is `WORK` before 1,000 seconds, `WRAP_UP` from 1,000, `CHECKPOINT` from 1,100, and `EXPIRED` from 1,200. The Implementer's contract specifies the required action for each phase, checks around non-Bash tools, and command timeout budgets. The script is read-only harness tooling, not permission to edit files under `architect/`.
+
+Clock reporting is advisory: the wrapper does not interrupt model generation, stop long commands, or block commands based on phase. Pi's hard timeout can kill it before the final reading. The agent must still use bounded Bash tool timeouts and obey the reported phase; this is not a substitute for runtime enforcement by a Pi extension. A fresh timestamp is supplied for each new child, including retries, but must never be reset within a session.
 
 ## Set up a new project
 
 Create the sibling workspaces and copy the authoritative agent contracts from this boilerplate:
 
 ```bash
-mkdir -p my-pi-project/architect my-pi-project/implementer/src
+mkdir -p my-pi-project/architect/tools my-pi-project/implementer/src
 cp /path/to/pi-seq-multi-agent/README.md my-pi-project/README.md
 cp /path/to/pi-seq-multi-agent/architect/AGENTS.md my-pi-project/architect/AGENTS.md
 cp /path/to/pi-seq-multi-agent/architect/TASKS.md my-pi-project/architect/TASKS.md
+cp /path/to/pi-seq-multi-agent/architect/tools/implementer-run.sh my-pi-project/architect/tools/implementer-run.sh
+chmod +x my-pi-project/architect/tools/implementer-run.sh
 cp /path/to/pi-seq-multi-agent/implementer/AGENTS.md my-pi-project/implementer/AGENTS.md
 touch my-pi-project/implementer/src/.gitkeep
 cd my-pi-project
@@ -222,8 +244,9 @@ If you add this workflow to an existing repository:
 2. Move all production code, tests, manifests, and project tooling under `implementer/`.
 3. Copy the two `AGENTS.md` files to their corresponding sibling directories.
 4. Place `TASKS.md` under `architect/`.
-5. Do not leave an Architect `AGENTS.md` at the repository root.
-6. Confirm that the integration branch is named `main` and commit the migration before launching either agent.
+5. Create `architect/tools/`, copy `architect/tools/implementer-run.sh` from this boilerplate, and run `chmod +x architect/tools/implementer-run.sh` from the repository root.
+6. Do not leave an Architect `AGENTS.md` at the repository root.
+7. Confirm that the integration branch is named `main` and commit the migration before launching either agent.
 
 ## Authoritative role contracts
 
@@ -242,7 +265,7 @@ Start the parent Pi process from `architect/`. Its contract requires the Archite
 - Add acceptance criteria, required tests, exact test commands, and an implementation branch only to the single Active Task and delegated prompt.
 - Commit Architect-owned planning state on `main` before creating the implementation branch.
 - Create a branch named `implementer/<task-id>-<short-slug>` from `main`.
-- Launch the child from `../implementer/` and wait for it to finish.
+- Verify the clock wrapper is executable, launch the child from `../implementer/` with a fresh `IMPLEMENTER_STARTED_AT`, and wait for it to finish.
 - Inspect the returned commit and the complete branch delta against `main`.
 - Verify that the child changed only allowed files under `implementer/`.
 - Run tests independently from `../implementer/`.
@@ -256,6 +279,7 @@ The Architect's direct commits may contain `architect/DESIGN.md` and `architect/
 Start every child Pi process from `implementer/`. Its contract requires the Implementer to:
 
 - Work only within the implementation workspace.
+- Check the execution clock first, wrap Bash commands with `../architect/tools/implementer-run.sh`, and obey its phase rules without modifying the script.
 - Treat `../architect/TASKS.md` and its implementation summary as unreadable, Architect-owned state; use only the delegated prompt.
 - Complete Git preflight, then measure and validate `../architect/DESIGN.md` before reading it once.
 - Require `Known Architectural Debt` rather than implementation status in the design.
@@ -350,10 +374,10 @@ Git discovers the repository root even though these commands run from `architect
 
 ### 3. Delegate one task
 
-The Architect launches the child from the sibling workspace with a Bash tool timeout of 1,200 seconds:
+The Architect checks that the wrapper is executable, then launches the child from the sibling workspace with a Bash tool timeout of 1,200 seconds:
 
 ```bash
-cd ../implementer && pi -p "<focused prompt from TASKS.md>"
+test -x tools/implementer-run.sh && cd ../implementer && IMPLEMENTER_STARTED_AT="$(date +%s)" pi -p "<focused prompt from TASKS.md>"
 ```
 
 The delegated prompt must specify:
@@ -364,6 +388,7 @@ The delegated prompt must specify:
 - Acceptance criteria
 - Tests to create or update
 - Exact test commands to run from `implementer/`
+- Required use of the read-only clock wrapper and the Implementer's execution-clock phase rules
 - The requirement to commit successful or stabilized partial work
 - The required handoff fields
 - Prohibited Git and filesystem operations
@@ -372,11 +397,12 @@ Because the child starts from `implementer/`, Pi loads `implementer/AGENTS.md` b
 
 ### 4. Perform the Implementer preflight
 
-Before changing files, the child checks:
+The child's first tool call checks the clock. It then performs Git preflight through the wrapper before changing files:
 
 ```bash
-git branch --show-current
-git status --short
+../architect/tools/implementer-run.sh
+../architect/tools/implementer-run.sh git branch --show-current
+../architect/tools/implementer-run.sh git status --short
 ```
 
 The branch must exactly match the prompt, must not be `main`, and the working tree must be clean. Any mismatch is a blocking failure. The child reports it without editing, staging, cleaning, resetting, restoring, or stashing anything.
@@ -386,10 +412,10 @@ The branch must exactly match the prompt, must not be `main`, and the working tr
 After Git preflight, the Implementer measures `../architect/DESIGN.md`, verifies its required architecture-only structure, and reads it once. It never reads `TASKS.md`. It then changes only delegated files in its current workspace, writes or updates tests, and runs the exact test commands. It stages only intentional paths:
 
 ```bash
-git add src/user.py tests/test_user.py
-git commit -m "feat: add validated user model"
-git rev-parse HEAD
-git status --short
+../architect/tools/implementer-run.sh git add src/user.py tests/test_user.py
+../architect/tools/implementer-run.sh git commit -m "feat: add validated user model"
+../architect/tools/implementer-run.sh git rev-parse HEAD
+../architect/tools/implementer-run.sh git status --short
 ```
 
 Broad staging commands such as `git add .` and `git add -A` are forbidden because they can capture unrelated or Architect-owned changes.
@@ -460,7 +486,7 @@ The Architect runs the relevant tests again from `../implementer/` after the mer
 
 ## Timeout and partial-work recovery
 
-The child has a strict 1,200-second execution window. At approximately 1,000 seconds, it must stop starting new work and enter Wrap-Up mode:
+The child has a strict 1,200-second execution window measured from `IMPLEMENTER_STARTED_AT`. At the first clock reading of 1,000 seconds or later, it must stop starting new work and enter Wrap-Up mode (or proceed directly to checkpointing if already past 1,100 seconds):
 
 1. Stabilize syntax and leave the implementation in the safest practical state.
 2. Run the most relevant required tests that fit within the remaining time.
@@ -468,6 +494,8 @@ The child has a strict 1,200-second execution window. At approximately 1,000 sec
 4. Create a clearly identified WIP checkpoint commit.
 5. Return the commit hash, test status, unfinished work, blockers, and working-tree status.
 6. End with `RESULT: FAILURE`, because the delegated task is incomplete.
+
+At 1,100 seconds, optional stabilization and testing stop so the child can prioritize the checkpoint and handoff. It targets completion by 1,150 seconds. If a command times out or is interrupted, the child performs a standalone clock check before continuing; the wrapper's after-command reading may be missing. At `EXPIRED`, it reports the available checkpoint and known state immediately without further tool calls. A missing or invalid clock configuration is a blocking failure, not permission to start a new timer.
 
 Example partial handoff:
 
