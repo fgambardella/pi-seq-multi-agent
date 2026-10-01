@@ -45,7 +45,6 @@ Read every `TASK_CLOCK` message and act on its phase before continuing:
 | `WORK` (elapsed < 1,000 seconds) | Perform small, bounded implementation steps. Enter Wrap-Up early if the next step is unlikely to fit before 1,000 seconds. |
 | `WRAP_UP` (1,000-1,099 seconds) | Immediately follow the Wrap-Up checklist. Do not finish the original implementation plan first. |
 | `CHECKPOINT` (1,100-1,199 seconds) | Stop optional stabilization and testing. Prioritize the safest available checkpoint commit, its hash, working-tree status, and final handoff. |
-| `EXPIRED` (elapsed >= 1,200 seconds) | Report the available checkpoint and known state immediately; do not start further tool calls. |
 
 Once Wrap-Up begins, never return to normal implementation in this session. Target completing the handoff by 1,150 seconds; the final 50 seconds are a safety margin, not more implementation time.
 
